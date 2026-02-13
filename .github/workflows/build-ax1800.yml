@@ -1,0 +1,92 @@
+name: Build Xiaomi AX1800 Firmware
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-ax1800.yml"
+      - "target/linux/qualcommax/**"
+      - "package/firmware/ath11k-firmware/**"
+      - "include/target.mk"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 2048
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison \
+            build-essential ccache cmake cpio curl device-tree-compiler flex gawk \
+            gettext genisoimage git gperf haveged help2man intltool libc6-dev-i386 \
+            libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf \
+            python3 python3-pip python3-ply python3-docutils python3-setuptools \
+            qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            unzip upx-ucl vim wget xmlto xxd zlib1g-dev
+
+      - name: Setup cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            dl
+            staging_dir/host
+            staging_dir/hostpkg
+            .ccache
+          key: ${{ runner.os }}-ax1800-${{ hashFiles('feeds.conf.default', 'include/target.mk', 'target/linux/qualcommax/**', '.github/workflows/build-ax1800.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-ax1800-
+
+      - name: Update and install feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Generate .config for Xiaomi AX1800
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_qualcommax=y
+          CONFIG_TARGET_qualcommax_ipq60xx=y
+          CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_xiaomi_ax1800=y
+          EOF
+          make defconfig
+
+      - name: Download sources
+        run: make download -j"$(nproc)"
+
+      - name: Build firmware
+        run: |
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp -a bin/targets/qualcommax/ipq60xx artifacts/
+          (cd artifacts && sha256sum ipq60xx/* > SHA256SUMS)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-ax1800-firmware
+          path: artifacts/
+          if-no-files-found: error
