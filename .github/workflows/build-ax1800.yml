@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
@@ -35,27 +35,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ack antlr3 asciidoc autoconf automake autopoint binutils bison \
-            build-essential ccache cmake cpio curl device-tree-compiler flex gawk \
-            gettext genisoimage git gperf haveged help2man intltool libc6-dev-i386 \
-            libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
-            libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
-            libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf \
-            python3 python3-pip python3-ply python3-docutils python3-setuptools \
-            qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs \
-            unzip upx-ucl vim wget xmlto xxd zlib1g-dev
-
-      - name: Setup cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            dl
-            staging_dir/host
-            staging_dir/hostpkg
-            .ccache
-          key: ${{ runner.os }}-ax1800-${{ hashFiles('feeds.conf.default', 'include/target.mk', 'target/linux/qualcommax/**', '.github/workflows/build-ax1800.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-ax1800-
+            build-essential libncurses5-dev gawk git subversion libssl-dev \
+            gettext zlib1g-dev swig unzip time rsync python3 python3-pip \
+            file wget ccache
 
       - name: Update and install feeds
         run: |
@@ -65,6 +47,8 @@ jobs:
       - name: Generate .config for Xiaomi AX1800
         run: |
           cat > .config <<'EOF'
+          CONFIG_DEVEL=y
+          CONFIG_BPF_TOOLCHAIN_HOST=y
           CONFIG_TARGET_qualcommax=y
           CONFIG_TARGET_qualcommax_ipq60xx=y
           CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_xiaomi_ax1800=y
@@ -76,9 +60,17 @@ jobs:
 
       - name: Build firmware
         run: |
-          make -j"$(nproc)" || make -j1 V=s
+          make -j"$(nproc)" BUILD_LOG=1 || make -j1 V=s BUILD_LOG=1
 
-      - name: Collect artifacts
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: build-logs-ax1800
+          path: logs/
+          if-no-files-found: ignore
+
+      - name: Collect firmware artifacts
         run: |
           mkdir -p artifacts
           cp -a bin/targets/qualcommax/ipq60xx artifacts/
